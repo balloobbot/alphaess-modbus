@@ -1,0 +1,129 @@
+"""What a poll actually asks the device for."""
+
+from __future__ import annotations
+
+import pytest
+from modbus_connection.mock import MockModbusUnit
+
+from alphaess_modbus import AlphaESS, AlphaESSComponent, Variant
+
+
+def _blocks(unit: MockModbusUnit) -> list[tuple[int, int]]:
+    return [(event.address, event.count) for event in unit.read_events]
+
+
+def _covered(unit: MockModbusUnit) -> set[int]:
+    return {
+        address
+        for event in unit.read_events
+        for address in range(event.address, event.address + event.count)
+    }
+
+
+def _kept_addresses(component: AlphaESSComponent) -> set[int]:
+    return {
+        address
+        for resolved in component.resolved_fields.values()
+        for address in range(resolved.address, resolved.address + resolved.count)
+    }
+
+
+def _dropped_addresses(component: AlphaESSComponent) -> set[int]:
+    kept = set(component.resolved_fields)
+    dropped = {
+        address
+        for name, field in component.declared_fields.items()
+        if name not in kept
+        for address in range(field.address, field.address + field.count)
+    }
+    # A dropped field may share a register with a kept one (the X1/X3 pairs).
+    return dropped - _kept_addresses(component)
+
+
+def _components(device: AlphaESS) -> list[AlphaESSComponent]:
+    return [device.info, *device.polled_components]
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        Variant.GEN,
+        Variant.GEN | Variant.X1,
+        Variant.GEN | Variant.X3 | Variant.EPS | Variant.MPPT3,
+        Variant.MAX | Variant.GEN2 | Variant.MPPT5,
+    ],
+)
+async def test_poll_covers_every_field(unit: MockModbusUnit, variant: Variant) -> None:
+    device = AlphaESS(unit, variant)
+    await device.async_update()
+    covered = _covered(unit)
+    for component in _components(device):
+        assert _kept_addresses(component) <= covered
+
+
+@pytest.mark.parametrize("variant", [Variant.GEN, Variant.GEN | Variant.X1])
+async def test_a_component_never_reads_a_register_it_dropped(
+    unit: MockModbusUnit, variant: Variant
+) -> None:
+    """Registers of fields this variant lacks stay out of that component's reads.
+
+    Pooling several components into one poll does widen a block over another
+    component's gap — as upstream's 100-register blocks do — but a component
+    refreshed on its own reads only what it kept.
+    """
+    device = AlphaESS(unit, variant)
+    for component in _components(device):
+        unit.read_events.clear()
+        await component.async_update()
+        assert not _dropped_addresses(component) & _covered(unit)
+
+
+async def test_reads_are_holding_registers_within_the_block_limit(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    await device.async_update()
+    assert unit.read_events
+    for event in unit.read_events:
+        assert event.register_type == "holding"
+        assert event.count <= AlphaESSComponent.max_span  # upstream's block size
+
+
+async def test_block_pattern_three_phase(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    await device.async_update()
+    assert _blocks(unit) == [
+        (0x640, 20),  # identity: versions + serial number, read once
+        (0x014, 15),  # grid 0x14-0x22
+        (0x100, 1),  # battery voltage
+        (0x102, 1),  # battery SOC (0x101 belongs to a field this variant lacks)
+        (0x119, 11),  # battery capacity + lifetime energy
+        (0x400, 41),  # inverter + EPS + PV, pooled across three components
+        (0x435, 12),  # temperature + run mode
+        (0x805, 13),  # system mode + unbalance mode
+        (0x84F, 19),  # time period control + the charge/discharge schedule
+    ]
+
+
+async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
+    device = AlphaESS(unit, Variant.GEN)
+    await device.async_update()
+    assert _blocks(unit) == [
+        (0x640, 20),
+        (0x01A, 9),  # grid frequency + active power only
+        (0x100, 1),
+        (0x102, 1),
+        (0x119, 11),
+        (0x40C, 25),  # inverter power, frequency, PV 1 and 2
+        (0x435, 12),
+        (0x805, 1),  # no unbalance mode without X3
+        (0x84F, 19),
+    ]
+
+
+async def test_identity_is_read_once(unit: MockModbusUnit, device: AlphaESS) -> None:
+    await device.async_update()
+    unit.read_events.clear()
+    await device.async_update()
+    assert (0x640, 20) not in _blocks(unit)
+    assert len(_blocks(unit)) == 8
