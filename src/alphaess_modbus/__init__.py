@@ -19,7 +19,7 @@ The register map is derived from the AlphaESS plugin of
 """
 
 from .battery import Battery
-from .component import AlphaESSComponent
+from .component import AlphaESSComponent, UpdateReport
 from .device import AlphaESS, async_detect_variant
 from .enums import RunMode, SystemMode, TimePeriodControl
 from .eps import EPS
@@ -45,6 +45,7 @@ __all__ = [
     "SystemMode",
     "TimePeriodControl",
     "UnknownInverterError",
+    "UpdateReport",
     "Variant",
     "async_detect_variant",
     "matches",

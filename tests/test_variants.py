@@ -214,7 +214,8 @@ def test_all_fields_are_reachable_by_some_variant(unit: MockModbusUnit) -> None:
     assert len(declared) == 77
 
 
-def test_a_variant_without_fields_is_not_polled(unit: MockModbusUnit) -> None:
+async def test_a_variant_without_fields_is_not_polled(unit: MockModbusUnit) -> None:
     device = AlphaESS(unit, Variant.GEN)
     assert device.eps.has_fields is False
-    assert device.eps not in device.polled_components
+    report = await device.async_update()
+    assert "eps" not in report.updated

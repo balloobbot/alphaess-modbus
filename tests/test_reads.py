@@ -41,7 +41,16 @@ def _dropped_addresses(component: AlphaESSComponent) -> set[int]:
 
 
 def _components(device: AlphaESS) -> list[AlphaESSComponent]:
-    return [device.info, *device.polled_components]
+    components = [
+        device.info,
+        device.grid,
+        device.battery,
+        device.inverter,
+        device.eps,
+        device.pv,
+        device.settings,
+    ]
+    return [component for component in components if component.has_fields]
 
 
 @pytest.mark.parametrize(
@@ -67,9 +76,8 @@ async def test_a_component_never_reads_a_register_it_dropped(
 ) -> None:
     """Registers of fields this variant lacks stay out of that component's reads.
 
-    Pooling several components into one poll does widen a block over another
-    component's gap — as upstream's 100-register blocks do — but a component
-    refreshed on its own reads only what it kept.
+    A block does widen over a gap another component fills — the inverter reads
+    across the EPS registers — but never over a register this variant dropped.
     """
     device = AlphaESS(unit, variant)
     for component in _components(device):
@@ -98,8 +106,10 @@ async def test_block_pattern_three_phase(
         (0x100, 1),  # battery voltage
         (0x102, 1),  # battery SOC (0x101 belongs to a field this variant lacks)
         (0x119, 11),  # battery capacity + lifetime energy
-        (0x400, 41),  # inverter + EPS + PV, pooled across three components
-        (0x435, 12),  # temperature + run mode
+        (0x400, 29),  # inverter output 0x400-0x40D + frequency 0x41C, over the
+        (0x435, 12),  # EPS gap; temperature + run mode
+        (0x40E, 14),  # EPS, re-reading what the inverter block covered
+        (0x41D, 12),  # PV 1-3
         (0x805, 13),  # system mode + unbalance mode
         (0x84F, 19),  # time period control + the charge/discharge schedule
     ]
@@ -114,8 +124,10 @@ async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
         (0x100, 1),
         (0x102, 1),
         (0x119, 11),
-        (0x40C, 25),  # inverter power, frequency, PV 1 and 2
+        (0x40C, 17),  # inverter power + frequency; no per-phase fields
         (0x435, 12),
+        # EPS has no fields for this variant, so nothing re-reads 0x40E-0x41B.
+        (0x41D, 8),  # PV 1 and 2
         (0x805, 1),  # no unbalance mode without X3
         (0x84F, 19),
     ]
@@ -126,4 +138,4 @@ async def test_identity_is_read_once(unit: MockModbusUnit, device: AlphaESS) -> 
     unit.read_events.clear()
     await device.async_update()
     assert (0x640, 20) not in _blocks(unit)
-    assert len(_blocks(unit)) == 8
+    assert len(_blocks(unit)) == 10

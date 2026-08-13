@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from modbus_connection import ModbusConnectionError, ModbusError
 from modbus_connection.decode import decode_string
-from modbus_connection.model import ComponentGroup
 
 from .battery import Battery
+from .component import AlphaESSComponent, UpdateReport
 from .eps import EPS
 from .grid import Grid
 from .info import SERIAL_NUMBER_ADDRESS, SERIAL_NUMBER_LENGTH, Info
@@ -18,6 +19,13 @@ from .variants import UnknownInverterError, Variant, variant_from_serial
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
+
+# Every component a poll may refresh, in read order; ``info`` is read separately,
+# only until it succeeds. Each reads for itself, so the EPS block (0x40E-0x41B)
+# is now read twice per poll: it sits inside the inverter's 0x400-0x41C span,
+# which the inverter reads across. 14 duplicated registers buys each block a
+# failure of its own.
+_POLLED = ("grid", "battery", "inverter", "eps", "pv", "settings")
 
 
 async def async_detect_variant(unit: ModbusUnit) -> Variant:
@@ -49,19 +57,7 @@ class AlphaESS:
         self.pv = PV(unit, variant)
         self.settings = Settings(unit, variant)
 
-        self.polled_components = [
-            component
-            for component in (
-                self.grid,
-                self.battery,
-                self.inverter,
-                self.eps,
-                self.pv,
-                self.settings,
-            )
-            if component.has_fields
-        ]
-        self._group = ComponentGroup(unit, self.polled_components)
+        self._polled = [name for name in _POLLED if getattr(self, name).has_fields]
         self._info_read = False
 
     @classmethod
@@ -69,9 +65,33 @@ class AlphaESS:
         """Build a device for the inverter on ``unit``, reading its variant."""
         return cls(unit, await async_detect_variant(unit))
 
-    async def async_update(self) -> None:
-        """Refresh every polled sub-system; the first call also reads identity."""
-        if not self._info_read:
-            await self.info.async_update()
-            self._info_read = True
-        await self._group.async_update()
+    async def async_update(self) -> UpdateReport:
+        """Refresh every polled sub-system, one at a time.
+
+        Components are read independently, the way upstream reads its blocks: a
+        sub-system whose read fails keeps its previous values while the rest
+        still refresh. Listeners fire only after every component has been tried,
+        and only on the ones that refreshed. A failure of the link itself raises
+        ``ModbusConnectionError`` instead of reporting.
+
+        Identity rides along until it is read: it is polled with the rest, and
+        dropped from the poll once it succeeds.
+        """
+        updated: set[str] = set()
+        failed: dict[str, ModbusError] = {}
+        names = self._polled if self._info_read else ["info", *self._polled]
+        for name in names:
+            component: AlphaESSComponent = getattr(self, name)
+            try:
+                await component.async_update(notify=False)
+            except ModbusConnectionError:
+                raise
+            except ModbusError as err:
+                failed[name] = err
+            else:
+                updated.add(name)
+        self._info_read = self._info_read or "info" in updated
+        for name in updated:
+            fresh: AlphaESSComponent = getattr(self, name)
+            fresh.notify()
+        return UpdateReport(updated, failed)

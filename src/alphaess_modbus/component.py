@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from modbus_connection import ModbusError
 from modbus_connection.model import Component, WriteValidator
 
 from .variants import Variant, matches
@@ -40,6 +42,24 @@ class AlphaESSComponent(Component):
     def has_fields(self) -> bool:
         """Whether this variant has any of this sub-system's fields."""
         return bool(self.resolved_fields)
+
+
+@dataclass(frozen=True)
+class UpdateReport:
+    """What one poll refreshed, by the device's component attribute names.
+
+    A failed component kept its previous values and did not notify; the error
+    that failed it rides along. A dead link is never in here — the update
+    raises ``ModbusConnectionError`` instead of reporting partial silence.
+    """
+
+    updated: set[str]
+    failed: dict[str, ModbusError]
+
+    @property
+    def complete(self) -> bool:
+        """Whether every polled component refreshed."""
+        return not self.failed
 
 
 def in_range(low: int, high: int) -> WriteValidator:
