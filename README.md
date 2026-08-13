@@ -15,9 +15,9 @@ The register map (addresses, scales, data types, option lists and the
 - **ASCII framing over TCP is not supported.** Build the connection with an RTU
   or socket framer; this library neither accepts nor forwards `framer="ascii"`.
 - A device is a set of sub-systems, each a `Component` with its own registers,
-  refreshable on its own and pooled into one set of block reads by
-  `async_update()`. Reads are capped at 100 registers per block, the block size
-  upstream uses for this device.
+  refreshable on its own, and `async_update()` refreshes them one by one. Reads
+  are capped at 100 registers per block, the block size upstream uses for this
+  device.
 
 | Attribute | What |
 | --- | --- |
@@ -88,6 +88,21 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+A poll reads each sub-system independently, the way upstream reads its blocks:
+one slow or refused block does not take the rest of the poll with it.
+`async_update()` returns an `UpdateReport` — a failed sub-system keeps its
+previous values, does not notify its listeners, and is listed by attribute name
+with its error, while every other one refreshes and notifies once the whole poll
+is done. Only a dead link (`ModbusConnectionError`) raises:
+
+```python
+report = await device.async_update()
+for name, error in report.failed.items():
+    print(f"{name} kept its previous values: {error}")
+```
+
+`info` is part of that poll until it succeeds, and is dropped from it afterwards.
 
 `AlphaESS.async_detect(unit)` builds the device with the variant read from the
 serial number instead, raising `UnknownInverterError` when the prefix is not one
