@@ -6,7 +6,13 @@ import pytest
 from modbus_connection import IllegalDataValueError
 from modbus_connection.mock import MockModbusUnit, WriteEvent
 
-from alphaess_modbus import AlphaESS, SystemMode, TimePeriodControl, Variant
+from alphaess_modbus import (
+    AlphaESS,
+    ResetMode,
+    SystemMode,
+    TimePeriodControl,
+    Variant,
+)
 
 
 async def test_write_system_mode(unit: MockModbusUnit, device: AlphaESS) -> None:
@@ -21,6 +27,23 @@ async def test_write_time_period_control(
 ) -> None:
     await device.settings.write("time_period_control", TimePeriodControl.CHARGE_ENABLED)
     assert unit.holding[0x84F] == 1
+
+
+async def test_write_system_time(unit: MockModbusUnit, device: AlphaESS) -> None:
+    from datetime import datetime
+
+    dt = datetime(2026, 5, 13, 7, 47, 12)
+    await device.inverter.write("system_time", dt)
+    assert unit.holding[0x740] == 0x2605
+    assert unit.holding[0x741] == 0x1307
+    assert unit.holding[0x742] == 0x4712
+    await device.inverter.async_update()
+    assert device.inverter.system_time == dt
+
+
+async def test_write_reset_mode(unit: MockModbusUnit, device: AlphaESS) -> None:
+    await device.inverter.write("reset_mode", ResetMode.RESTART_EMS)
+    assert unit.holding[0x1100] == 8
 
 
 async def test_write_unbalance_mode(unit: MockModbusUnit, device: AlphaESS) -> None:
@@ -67,6 +90,8 @@ async def test_out_of_range_write_is_refused(
 
 
 async def test_measurements_are_read_only(device: AlphaESS) -> None:
+    await device.async_update()
+    assert device.battery is not None
     with pytest.raises(AttributeError):
         await device.battery.write("soc", 50)
 

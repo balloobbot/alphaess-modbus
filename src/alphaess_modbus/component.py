@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from modbus_connection.model import Component, WriteValidator
 
-from .variants import Variant, matches
+from .variants import ANY, Variant, matches
 
 if TYPE_CHECKING:
     from modbus_connection import ModbusUnit
@@ -25,16 +25,17 @@ class AlphaESSComponent(Component):
 
     field_variants: ClassVar[dict[str, Variant]] = {}
 
-    def __init__(self, unit: ModbusUnit, variant: Variant) -> None:
-        super().__init__(unit)
+    def __init__(self, unit: ModbusUnit, variant: Variant = ANY, **kwargs: Any) -> None:
+        super().__init__(unit, **kwargs)
         self.variant = variant
-        self.restrict_fields(
-            [
-                name
-                for name, mask in self.field_variants.items()
-                if matches(variant, mask)
-            ]
-        )
+        if self.field_variants and not (self._static_groups or self._repeating_fields):
+            self.restrict_fields(
+                [
+                    name
+                    for name, mask in self.field_variants.items()
+                    if matches(variant, mask)
+                ]
+            )
 
     @property
     def has_fields(self) -> bool:

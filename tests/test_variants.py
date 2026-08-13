@@ -8,14 +8,17 @@ import pytest
 from modbus_connection.mock import MockModbusUnit
 
 from alphaess_modbus import (
+    BMU,
     EPS,
     PV,
     AlphaESS,
     AlphaESSComponent,
     Battery,
+    BMUModule,
     Grid,
     Info,
     Inverter,
+    Network,
     Settings,
     UnknownInverterError,
     Variant,
@@ -28,11 +31,15 @@ COMPONENTS: tuple[type[AlphaESSComponent], ...] = (
     Info,
     Grid,
     Battery,
+    BMU,
+    BMUModule,
     Inverter,
     EPS,
     PV,
     Settings,
+    Network,
 )
+
 
 # The upstream groups, as literal ints, so a typo in Variant would show up.
 _GEN_GROUP = 0x0001 | 0x0002 | 0x0004 | 0x0008 | 0x0010
@@ -123,13 +130,15 @@ async def test_detect_rejects_an_unknown_serial(unit: MockModbusUnit) -> None:
         (
             Variant.GEN,
             {
-                "Info": 3,
-                "Grid": 2,
-                "Battery": 5,
-                "Inverter": 4,
+                "Info": 5,
+                "Grid": 25,
+                "Battery": 38,
+                "BMU": 24,
+                "Inverter": 16,
                 "EPS": 0,
-                "PV": 6,
-                "Settings": 20,
+                "PV": 14,
+                "Settings": 29,
+                "Network": 5,
             },
         ),
         (
@@ -138,61 +147,89 @@ async def test_detect_rejects_an_unknown_serial(unit: MockModbusUnit) -> None:
                 "Info": 1,
                 "Grid": 1,
                 "Battery": 0,
+                "BMU": 0,
                 "Inverter": 0,
                 "EPS": 0,
                 "PV": 0,
                 "Settings": 0,
+                "Network": 0,
             },
         ),
         # Variants a caller can state explicitly.
         (
             Variant.GEN | Variant.X1,
             {
-                "Info": 3,
-                "Grid": 4,
-                "Battery": 5,
-                "Inverter": 6,
+                "Info": 5,
+                "Grid": 27,
+                "Battery": 38,
+                "BMU": 24,
+                "Inverter": 18,
                 "EPS": 2,
-                "PV": 6,
-                "Settings": 20,
+                "PV": 14,
+                "Settings": 29,
+                "Network": 5,
             },
         ),
         (
             Variant.GEN | Variant.X3 | Variant.EPS | Variant.MPPT3,
             {
-                "Info": 3,
-                "Grid": 8,
-                "Battery": 5,
-                "Inverter": 13,
+                "Info": 5,
+                "Grid": 44,
+                "Battery": 38,
+                "BMU": 24,
+                "Inverter": 25,
                 "EPS": 10,
-                "PV": 9,
-                "Settings": 21,
+                "PV": 23,
+                "Settings": 30,
+                "Network": 5,
             },
         ),
     ],
 )
-def test_field_counts_per_variant(
+async def test_field_counts_per_variant(
     unit: MockModbusUnit, variant: Variant, expected: dict[str, int]
 ) -> None:
     device = AlphaESS(unit, variant)
+    await device.async_update()
+    components = (
+        device.info,
+        device.grid,
+        device.battery,
+        device.bmu,
+        device.inverter,
+        device.eps,
+        device.pv,
+        device.settings,
+        device.network,
+    )
+    names = (
+        "Info",
+        "Grid",
+        "Battery",
+        "BMU",
+        "Inverter",
+        "EPS",
+        "PV",
+        "Settings",
+        "Network",
+    )
     counts = {
-        type(component).__name__: len(component.resolved_fields)
-        for component in (
-            device.info,
-            device.grid,
-            device.battery,
-            device.inverter,
-            device.eps,
-            device.pv,
-            device.settings,
-        )
+        name: 0 if component is None else len(component.resolved_fields)
+        for component, name in zip(components, names, strict=True)
     }
     assert counts == expected
 
 
 def test_all_fields_are_reachable_by_some_variant(unit: MockModbusUnit) -> None:
-    """No field is unreachable: 77 registers over three variants."""
-    everything = Variant.GEN | Variant.X3 | Variant.EPS | Variant.MPPT3
+    """No field is unreachable."""
+    everything = (
+        Variant.GEN
+        | Variant.X3
+        | Variant.EPS
+        | Variant.MPPT3
+        | Variant.MPPT4
+        | Variant.MPPT5
+    )
     reachable: set[tuple[str, str]] = set()
     for variant in (
         everything,
@@ -211,7 +248,7 @@ def test_all_fields_are_reachable_by_some_variant(unit: MockModbusUnit) -> None:
         for name in component_class.declared_fields
     }
     assert reachable == declared
-    assert len(declared) == 77
+    assert len(declared) == 247
 
 
 def test_a_variant_without_fields_is_not_polled(unit: MockModbusUnit) -> None:

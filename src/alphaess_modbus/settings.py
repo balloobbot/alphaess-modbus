@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from modbus_connection.model import boolean, enum, integer
+from modbus_connection.model import boolean, enum, int32, integer
 
 from .component import AlphaESSComponent, in_range
 from .enums import SystemMode, TimePeriodControl
@@ -17,6 +17,7 @@ class Settings(AlphaESSComponent):
     """Everything the inverter accepts a write on (0x805 - 0x861)."""
 
     system_mode = enum(0x805, SystemMode, writable=True)
+
     three_phase_unbalance_mode = boolean(0x811, writable=True)
     # Upstream spells this key "time_preiod_control".
     time_period_control = enum(0x84F, TimePeriodControl, writable=True)
@@ -38,6 +39,15 @@ class Settings(AlphaESSComponent):
     charge_stop_1_mins = integer(0x85F, signed=False, writable=_MINUTE, unit="min")
     charge_start_2_mins = integer(0x860, signed=False, writable=_MINUTE, unit="min")
     charge_stop_2_mins = integer(0x861, signed=False, writable=_MINUTE, unit="min")
+    dispatch_start = integer(0x880, signed=False, writable=True)
+    dispatch_active_power = int32(0x881, writable=True, unit="W")
+    dispatch_reactive_power = int32(0x883, writable=True, unit="var")
+    dispatch_soc = integer(0x886, signed=False, writable=True, unit="%")
+    dispatch_time = integer(0x887, signed=False, writable=True, unit="s")
+    dispatch_energy_flow_direction = integer(0x889, signed=False, writable=True)
+    dispatch_pv_switch = integer(0x88A, signed=False, writable=True)
+    freq_dispatch_flag = integer(0x88F, signed=False, writable=True)
+    freq_dispatch_power = int32(0x890, writable=True, unit="W")
 
     field_variants = {
         "system_mode": Variant.GEN,
@@ -61,4 +71,13 @@ class Settings(AlphaESSComponent):
         "charge_stop_1_mins": Variant.GEN,
         "charge_start_2_mins": Variant.GEN,
         "charge_stop_2_mins": Variant.GEN,
+        "dispatch_start": Variant.GEN,
+        "dispatch_active_power": Variant.GEN,
+        "dispatch_reactive_power": Variant.GEN,
+        "dispatch_soc": Variant.GEN,
+        "dispatch_time": Variant.GEN,
+        "dispatch_energy_flow_direction": Variant.GEN,
+        "dispatch_pv_switch": Variant.GEN,
+        "freq_dispatch_flag": Variant.GEN,
+        "freq_dispatch_power": Variant.GEN,
     }

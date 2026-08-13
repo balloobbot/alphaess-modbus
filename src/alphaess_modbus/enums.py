@@ -36,3 +36,36 @@ class TimePeriodControl(IntEnum):
     CHARGE_ENABLED = 1
     DISCHARGE_ENABLED = 2
     BOTH_ENABLED = 3
+
+
+class DispatchMode(IntEnum):
+    """Control algorithm used when a dispatch command is active (0x885)."""
+
+    PV_ONLY_CHARGE = 1
+    SOC_CONTROL = 2
+    LOAD_FOLLOWING = 3
+    MAXIMISE_OUTPUT = 4
+    NORMAL_MODE = 5
+    OPTIMISE_CONSUMPTION = 6
+    MAXIMISE_CONSUMPTION = 7
+    NO_BATTERY_CHARGE = 19
+
+
+class ResetMode(IntEnum):
+    """Inverter reset and restart command codes (0x1100)."""
+
+    ENERGY_TOTALS_RESET = 1
+    FACTORY_RESET = 2
+    CLEAR_FAULT = 3
+    CLEAR_WARNING = 4
+    RESTART_DSP = 5
+    RESTART_ARM = 6
+    RESTART_PCS = 7
+    RESTART_EMS = 8
+
+
+class IpMethod(IntEnum):
+    """IP address assignment method (0x0808)."""
+
+    DHCP = 0
+    STATIC = 1
