@@ -139,3 +139,33 @@ async def test_identity_is_read_once(unit: MockModbusUnit, device: AlphaESS) -> 
     await device.async_update()
     assert (0x640, 20) not in _blocks(unit)
     assert len(_blocks(unit)) == 10
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        Variant.GEN,
+        Variant.GEN | Variant.X1,
+        Variant.GEN | Variant.X3 | Variant.EPS | Variant.MPPT3,
+        Variant.MAX | Variant.GEN2 | Variant.MPPT5,
+    ],
+)
+async def test_read_raw_covers_every_field(
+    unit: MockModbusUnit, variant: Variant
+) -> None:
+    """A dump an issue report can use needs identity too, not just the poll."""
+    device = AlphaESS(unit, variant)
+    dumped = set((await device.async_read_raw())["holding"])
+    for component in _components(device):
+        assert _kept_addresses(component) <= dumped
+
+
+async def test_read_raw_still_covers_identity_once_the_poll_drops_it(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    await device.async_update()  # identity read, and out of the poll from here
+
+    raw = await device.async_read_raw()
+
+    assert set(raw) == {"holding"}
+    assert _kept_addresses(device.info) <= set(raw["holding"])

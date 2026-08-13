@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from modbus_connection import ModbusConnectionError, ModbusError
 from modbus_connection.decode import decode_string
+from modbus_connection.model import ComponentGroup
 
 from .battery import Battery
 from .component import AlphaESSComponent, UpdateReport
@@ -48,6 +49,7 @@ class AlphaESS:
     """
 
     def __init__(self, unit: ModbusUnit, variant: Variant) -> None:
+        self._unit = unit
         self.variant = variant
         self.info = Info(unit, variant)
         self.grid = Grid(unit, variant)
@@ -95,3 +97,18 @@ class AlphaESS:
             fresh: AlphaESSComponent = getattr(self, name)
             fresh.notify()
         return UpdateReport(updated, failed)
+
+    async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
+        """Every register this device reads, undecoded — for diagnostics.
+
+        Covers the identity block, which the poll drops once it has read it and
+        which is exactly what an issue report needs. Left out are the
+        components this variant has no fields for, whose registers a poll never
+        asks for either. The reads are pooled, so this is not the poll's shape.
+        """
+        components = [
+            getattr(self, name)
+            for name in ("info", *_POLLED)
+            if getattr(self, name).has_fields
+        ]
+        return await ComponentGroup(self._unit, components).async_read_raw()

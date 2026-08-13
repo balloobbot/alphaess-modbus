@@ -108,6 +108,21 @@ for name, error in report.failed.items():
 serial number instead, raising `UnknownInverterError` when the prefix is not one
 of the two above.
 
+### Raw register dump
+
+`async_read_raw()` reads every register the device reads and returns it
+undecoded, keyed by address space and address — the payload a bug report wants.
+It covers `info`, which the poll drops once it has read it, as well as the polled
+sub-systems, and leaves out the ones this variant has no fields for.
+
+```python
+raw = await device.async_read_raw()
+raw["holding"]  # {address: value} — everything on this device is FC03
+```
+
+The dump replays into `modbus-connection`'s mock backend through `load_raw()`, so
+one attached to an issue can back a regression test with no hardware.
+
 ## Development
 
 ```bash
