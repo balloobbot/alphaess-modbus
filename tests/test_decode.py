@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from modbus_connection.mock import MockModbusUnit
 
 from alphaess_modbus import (
     AlphaESS,
     Battery,
+    DispatchMode,
     Grid,
     RunMode,
     SystemMode,
@@ -44,9 +47,11 @@ async def test_single_phase_shares_the_three_phase_registers(
 
 async def test_battery(device: AlphaESS) -> None:
     await device.async_update()
+    assert device.battery is not None
     battery = device.battery
     assert battery.voltage == pytest.approx(51.2)
     assert battery.soc == 87
+    assert battery.bmu_software_version == 104
     assert battery.capacity == pytest.approx(13.2)
     assert battery.input_energy == pytest.approx(10000.0)  # uint32 * 0.1
     assert battery.output_energy == pytest.approx(3000.0)
@@ -78,6 +83,8 @@ async def test_inverter(device: AlphaESS) -> None:
     assert inverter.frequency == pytest.approx(50.01)
     assert inverter.temperature == pytest.approx(35.2)
     assert inverter.run_mode is RunMode.ONLINE
+    assert inverter.dispatch_mode is DispatchMode.SOC_CONTROL
+    assert inverter.system_time == datetime(2026, 5, 13, 7, 47, 12)
 
 
 async def test_eps(device: AlphaESS) -> None:
@@ -117,6 +124,21 @@ async def test_identity(device: AlphaESS) -> None:
     # Upstream reads 8 registers for the slave version, three of which are the
     # first characters of the serial number at 0x64A.
     assert device.info.software_slave_version == "SLAVE-2.34XYZ123"
+    assert device.info.ems_version == "1.0.23"
+    assert device.info.ems_serial_number == "EMS1234567890123"
+
+
+async def test_network(device: AlphaESS) -> None:
+    from ipaddress import IPv4Address
+
+    from alphaess_modbus import IpMethod
+
+    await device.async_update()
+    assert device.network.ip_method is IpMethod.DHCP
+    assert device.network.local_ip == IPv4Address("10.0.0.209")
+    assert device.network.subnet_mask == IPv4Address("255.255.255.0")
+    assert device.network.gateway == IPv4Address("10.0.0.1")
+    assert device.network.modbus_baud_rate == 9600
 
 
 async def test_settings(device: AlphaESS) -> None:
@@ -144,3 +166,13 @@ async def test_unknown_run_mode_decodes_to_none(unit: MockModbusUnit) -> None:
     device = AlphaESS(unit, Variant.GEN)
     await device.async_update()
     assert device.inverter.run_mode is None
+
+
+async def test_bmu(device: AlphaESS) -> None:
+    await device.async_update()
+    bmu = device.bmu
+    assert bmu is not None
+    assert bmu.soc == 92
+    assert len(device.bmu_modules) == 1
+    assert device.bmu_modules[0].soc == 95
+    assert device.bmu_modules[0].cluster_voltage == pytest.approx(52.0)
