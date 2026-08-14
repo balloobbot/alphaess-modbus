@@ -94,7 +94,10 @@ one slow or refused block does not take the rest of the poll with it.
 `async_update()` returns an `UpdateReport` — a failed sub-system keeps its
 previous values, does not notify its listeners, and is listed by attribute name
 with its error, while every other one refreshes and notifies once the whole poll
-is done. Only a dead link (`ModbusConnectionError`) raises:
+is done. A dead link (`ModbusConnectionError`) raises, and so does a
+`ModbusTimeoutError` on the first block tried: nothing answered at all, so the
+inverter is silent and the remaining components would each pay a full timeout to
+learn the same. A timeout once something has answered is still contained:
 
 ```python
 report = await device.async_update()
@@ -103,6 +106,8 @@ for name, error in report.failed.items():
 ```
 
 `info` is part of that poll until it succeeds, and is dropped from it afterwards.
+It is read last, so a slow identity block never writes off an inverter whose
+data blocks are answering.
 
 `AlphaESS.async_detect(unit)` builds the device with the variant read from the
 serial number instead, raising `UnknownInverterError` when the prefix is not one

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modbus_connection import ModbusConnectionError, ModbusError
+from modbus_connection import ModbusConnectionError, ModbusError, ModbusTimeoutError
 from modbus_connection.decode import decode_string
 from modbus_connection.model import ComponentGroup
 
@@ -74,20 +74,28 @@ class AlphaESS:
         sub-system whose read fails keeps its previous values while the rest
         still refresh. Listeners fire only after every component has been tried,
         and only on the ones that refreshed. A failure of the link itself raises
-        ``ModbusConnectionError`` instead of reporting.
+        ``ModbusConnectionError`` instead of reporting, and so does a timeout
+        with nothing answered yet: the device is silent, and walking the rest
+        would only pay a full timeout each to learn the same.
 
-        Identity rides along until it is read: it is polled with the rest, and
-        dropped from the poll once it succeeds.
+        Identity rides along until it is read: it is polled after the rest, and
+        dropped from the poll once it succeeds. Last, because it is the one
+        block whose failure the poll can shrug off — leading with it would let
+        a slow identity read write off a device that is answering.
         """
         updated: set[str] = set()
         failed: dict[str, ModbusError] = {}
-        names = self._polled if self._info_read else ["info", *self._polled]
+        names = self._polled if self._info_read else [*self._polled, "info"]
         for name in names:
             component: AlphaESSComponent = getattr(self, name)
             try:
                 await component.async_update(notify=False)
             except ModbusConnectionError:
                 raise
+            except ModbusTimeoutError as err:
+                if not updated and not failed:
+                    raise  # nothing answered: assume the rest time out too
+                failed[name] = err
             except ModbusError as err:
                 failed[name] = err
             else:

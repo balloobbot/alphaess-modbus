@@ -101,7 +101,6 @@ async def test_block_pattern_three_phase(
 ) -> None:
     await device.async_update()
     assert _blocks(unit) == [
-        (0x640, 20),  # identity: versions + serial number, read once
         (0x014, 15),  # grid 0x14-0x22
         (0x100, 1),  # battery voltage
         (0x102, 1),  # battery SOC (0x101 belongs to a field this variant lacks)
@@ -112,6 +111,7 @@ async def test_block_pattern_three_phase(
         (0x41D, 12),  # PV 1-3
         (0x805, 13),  # system mode + unbalance mode
         (0x84F, 19),  # time period control + the charge/discharge schedule
+        (0x640, 20),  # identity: versions + serial number, read once, polled last
     ]
 
 
@@ -119,7 +119,6 @@ async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
     device = AlphaESS(unit, Variant.GEN)
     await device.async_update()
     assert _blocks(unit) == [
-        (0x640, 20),
         (0x01A, 9),  # grid frequency + active power only
         (0x100, 1),
         (0x102, 1),
@@ -130,6 +129,7 @@ async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
         (0x41D, 8),  # PV 1 and 2
         (0x805, 1),  # no unbalance mode without X3
         (0x84F, 19),
+        (0x640, 20),
     ]
 
 

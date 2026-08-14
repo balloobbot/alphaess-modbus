@@ -81,10 +81,27 @@ async def test_every_component_refreshes_on_a_healthy_device(
     }
 
 
+async def test_a_timeout_before_anything_answered_is_fatal(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """A silent inverter: the rest would only pay a full timeout each."""
+    unit.fail_read(0x14, ModbusTimeoutError("inverter asleep"))
+    unit.read_events.clear()
+
+    with pytest.raises(ModbusTimeoutError):
+        await device.async_update()
+
+    assert len(unit.read_events) == 1  # the poll stopped at the first block
+
+
 async def test_a_failed_identity_read_is_contained_and_retried(
     unit: MockModbusUnit, device: AlphaESS
 ) -> None:
-    """Identity is read once, but a transient failure must not cost the poll."""
+    """Identity is read once, but a transient failure must not cost the poll.
+
+    It is polled last for exactly this reason: leading with it would make a
+    slow identity block fatal to a device that is answering everywhere else.
+    """
     unit.fail_read(0x640, ModbusTimeoutError("slow identity block"))
     report = await device.async_update()
 
