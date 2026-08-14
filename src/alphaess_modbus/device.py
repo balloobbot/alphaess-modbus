@@ -105,10 +105,13 @@ class AlphaESS:
         which is exactly what an issue report needs. Left out are the
         components this variant has no fields for, whose registers a poll never
         asks for either. The reads are pooled, so this is not the poll's shape.
+
+        The fields refresh, but no listener fires: a download is not a poll.
         """
         components = [
             getattr(self, name)
             for name in ("info", *_POLLED)
             if getattr(self, name).has_fields
         ]
-        return await ComponentGroup(self._unit, components).async_read_raw()
+        group = ComponentGroup(self._unit, components)
+        return await group.async_read_raw(notify=False)

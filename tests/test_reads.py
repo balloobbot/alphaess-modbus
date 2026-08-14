@@ -169,3 +169,19 @@ async def test_read_raw_still_covers_identity_once_the_poll_drops_it(
 
     assert set(raw) == {"holding"}
     assert _kept_addresses(device.info) <= set(raw["holding"])
+
+
+async def test_read_raw_refreshes_without_notifying(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """A download writes no state: it is not a poll, however fresh its values."""
+    await device.async_update()
+    fired: list[int] = []
+    for component in _components(device):
+        component.add_update_listener(lambda: fired.append(1))
+
+    unit.holding[0x41C] = 4990  # inverter frequency changes on the device
+    await device.async_read_raw()
+
+    assert not fired
+    assert device.inverter.frequency == 49.9  # the fields still refreshed
