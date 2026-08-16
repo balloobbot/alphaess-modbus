@@ -128,6 +128,21 @@ raw["holding"]  # {address: value} — everything on this device is FC03
 The dump replays into `modbus-connection`'s mock backend through `load_raw()`, so
 one attached to an issue can back a regression test with no hardware.
 
+## Checking a real inverter
+
+`script/query.py` reads one inverter once and prints every value it has, which
+is the quickest way to see whether it is wired and addressed correctly:
+
+```bash
+uv run script/query.py 192.168.1.50 --unit 85 --variant GEN,X3,EPS
+uv run script/query.py /dev/ttyUSB0 --transport serial --unit 85
+```
+
+Without `--variant` it detects one from the serial number, which for most
+inverters means the placeholder above — pass the flags explicitly to see the
+per-phase and EPS registers. Sub-systems this variant has no fields for are
+skipped, and the read count is printed at the end.
+
 ## Development
 
 ```bash
