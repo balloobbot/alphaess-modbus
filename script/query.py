@@ -28,7 +28,7 @@ from alphaess_modbus import AlphaESS, UnknownInverterError, Variant
 
 # The inverter is RS-485 RTU; over TCP it is reached through a gateway, which
 # presents it either transparently (rtu) or as native Modbus TCP (socket).
-CONNECTIONS = (("serial", "rtu"), ("tcp", "rtu"), ("tcp", "socket"))
+CONNECTIONS = (("tcp", "rtu"), ("tcp", "socket"), ("serial", "rtu"))
 
 # Identity first, then the sub-systems in poll order. ``info`` rides in the poll
 # only until it succeeds, so it is not in the polled set but does hold values
