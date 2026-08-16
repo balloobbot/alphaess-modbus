@@ -96,23 +96,28 @@ async def test_reads_are_holding_registers_within_the_block_limit(
         assert event.count <= AlphaESSComponent.max_span  # upstream's block size
 
 
+_READING_BLOCKS = [
+    (0x014, 15),  # grid 0x14-0x22
+    (0x100, 1),  # battery voltage
+    (0x102, 1),  # battery SOC (0x101 belongs to a field this variant lacks)
+    (0x119, 11),  # battery capacity + lifetime energy
+    (0x400, 29),  # inverter output 0x400-0x40D + frequency 0x41C, over the
+    (0x435, 12),  # EPS gap; temperature + run mode
+    (0x40E, 14),  # EPS, re-reading what the inverter block covered
+    (0x41D, 12),  # PV 1-3
+]
+_SETTING_BLOCKS = [
+    (0x805, 13),  # system mode + unbalance mode
+    (0x84F, 19),  # time period control + the charge/discharge schedule
+]
+_IDENTITY_BLOCK = (0x640, 20)  # versions + serial number, read once, polled last
+
+
 async def test_block_pattern_three_phase(
     unit: MockModbusUnit, device: AlphaESS
 ) -> None:
     await device.async_update()
-    assert _blocks(unit) == [
-        (0x014, 15),  # grid 0x14-0x22
-        (0x100, 1),  # battery voltage
-        (0x102, 1),  # battery SOC (0x101 belongs to a field this variant lacks)
-        (0x119, 11),  # battery capacity + lifetime energy
-        (0x400, 29),  # inverter output 0x400-0x40D + frequency 0x41C, over the
-        (0x435, 12),  # EPS gap; temperature + run mode
-        (0x40E, 14),  # EPS, re-reading what the inverter block covered
-        (0x41D, 12),  # PV 1-3
-        (0x805, 13),  # system mode + unbalance mode
-        (0x84F, 19),  # time period control + the charge/discharge schedule
-        (0x640, 20),  # identity: versions + serial number, read once, polled last
-    ]
+    assert _blocks(unit) == [*_READING_BLOCKS, _IDENTITY_BLOCK, *_SETTING_BLOCKS]
 
 
 async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
@@ -127,17 +132,35 @@ async def test_block_pattern_unknown_gen(unit: MockModbusUnit) -> None:
         (0x435, 12),
         # EPS has no fields for this variant, so nothing re-reads 0x40E-0x41B.
         (0x41D, 8),  # PV 1 and 2
+        (0x640, 20),
         (0x805, 1),  # no unbalance mode without X3
         (0x84F, 19),
-        (0x640, 20),
     ]
+
+
+async def test_readings_and_settings_read_their_own_blocks(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """Neither method reads a register the other one owns."""
+    await device.async_update()  # identity read, and out of the poll from here
+
+    unit.read_events.clear()
+    readings = await device.async_update_readings()
+    assert _blocks(unit) == _READING_BLOCKS
+
+    unit.read_events.clear()
+    settings = await device.async_update_settings()
+    assert _blocks(unit) == _SETTING_BLOCKS
+
+    assert readings.updated == {"grid", "battery", "inverter", "eps", "pv"}
+    assert settings.updated == {"settings"}
 
 
 async def test_identity_is_read_once(unit: MockModbusUnit, device: AlphaESS) -> None:
     await device.async_update()
     unit.read_events.clear()
     await device.async_update()
-    assert (0x640, 20) not in _blocks(unit)
+    assert _IDENTITY_BLOCK not in _blocks(unit)
     assert len(_blocks(unit)) == 10
 
 

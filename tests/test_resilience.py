@@ -51,8 +51,12 @@ async def test_listeners_fire_at_the_end_and_only_for_fresh_components(
     unit.read_events.clear()
     await device.async_update()
 
-    # One notification, after every component was tried; none for the failure.
-    assert seen == [len(unit.read_events)]
+    # One notification, after every reading was tried; none for the failure. The
+    # settings poll that follows is its own, and does not hold the readings up.
+    settings_start = next(
+        i for i, event in enumerate(unit.read_events) if event.address == 0x805
+    )
+    assert seen == [settings_start]
 
 
 async def test_a_dead_link_raises_instead_of_reporting(
@@ -92,6 +96,33 @@ async def test_a_timeout_before_anything_answered_is_fatal(
         await device.async_update()
 
     assert len(unit.read_events) == 1  # the poll stopped at the first block
+
+
+async def test_a_settings_poll_of_a_silent_device_is_fatal_too(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """Nothing has answered this cycle either, so the same rule applies."""
+    await device.async_update()
+    unit.fail_read(0x805, ModbusTimeoutError("inverter asleep"))
+    unit.read_events.clear()
+
+    with pytest.raises(ModbusTimeoutError):
+        await device.async_update_settings()
+
+    assert len(unit.read_events) == 1
+
+
+async def test_a_settings_failure_within_a_full_poll_is_contained(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """The readings answered, so the settings timeout only costs the settings."""
+    await device.async_update()
+    unit.fail_read(0x805, ModbusTimeoutError("slow settings block"))
+
+    report = await device.async_update()
+
+    assert set(report.failed) == {"settings"}
+    assert "battery" in report.updated
 
 
 async def test_a_failed_identity_read_is_contained_and_retried(

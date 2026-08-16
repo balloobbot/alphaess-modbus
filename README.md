@@ -18,6 +18,9 @@ The register map (addresses, scales, data types, option lists and the
   refreshable on its own, and `async_update()` refreshes them one by one. Reads
   are capped at 100 registers per block, the block size upstream uses for this
   device.
+- **Measurements and settings refresh separately.** `async_update_readings()`
+  reads what the inverter measures, `async_update_settings()` what it has been
+  configured to do, and `async_update()` does both.
 
 | Attribute | What |
 | --- | --- |
@@ -91,7 +94,7 @@ asyncio.run(main())
 
 A poll reads each sub-system independently, the way upstream reads its blocks:
 one slow or refused block does not take the rest of the poll with it.
-`async_update()` returns an `UpdateReport` — a failed sub-system keeps its
+Every update method returns an `UpdateReport` — a failed sub-system keeps its
 previous values, does not notify its listeners, and is listed by attribute name
 with its error, while every other one refreshes and notifies once the whole poll
 is done. A dead link (`ModbusConnectionError`) raises, and so does a
@@ -105,9 +108,29 @@ for name, error in report.failed.items():
     print(f"{name} kept its previous values: {error}")
 ```
 
-`info` is part of that poll until it succeeds, and is dropped from it afterwards.
-It is read last, so a slow identity block never writes off an inverter whose
-data blocks are answering.
+A report names only what the method it came from polls.
+
+`info` is part of the readings poll until it succeeds, and is dropped from it
+afterwards. It is read last, so a slow identity block never writes off an
+inverter whose data blocks are answering.
+
+### Reading settings apart from measurements
+
+`settings` — the system mode, the unbalance mode and the whole charge/discharge
+schedule — changes when something writes it, not on its own, so it is its own
+poll: two blocks of 32 registers out of the ten blocks a full poll reads, that a
+caller need not pay for every cycle.
+
+```python
+await device.async_update_readings()  # every cycle
+await device.async_update_settings()  # rarely, and after a write
+
+await device.settings.write("charge_target_soc", 90)
+await device.async_update_settings()  # read back what took effect
+```
+
+Listeners fire at the end of the poll that read their sub-system, so a settings
+poll does not hold up the measurements.
 
 `AlphaESS.async_detect(unit)` builds the device with the variant read from the
 serial number instead, raising `UnknownInverterError` when the prefix is not one
