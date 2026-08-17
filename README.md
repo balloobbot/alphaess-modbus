@@ -129,8 +129,9 @@ await device.settings.write("charge_target_soc", 90)
 await device.async_update_settings()  # read back what took effect
 ```
 
-Listeners fire at the end of the poll that read their sub-system, so a settings
-poll does not hold up the measurements.
+A settings poll fires its own sub-systems' listeners when that call is done, so
+it does not hold up the measurements. `async_update()` is one cycle and one
+notification: nothing fires until both halves have been read.
 
 `AlphaESS.async_detect(unit)` builds the device with the variant read from the
 serial number instead, raising `UnknownInverterError` when the prefix is not one
