@@ -76,16 +76,9 @@ class AlphaESS:
         return cls(unit, await async_detect_variant(unit))
 
     async def async_update_readings(self) -> UpdateReport:
-        """Refresh what the inverter measures: grid, battery, inverter, EPS, PV.
-
-        Identity rides along until it is read: it is polled after the rest, and
-        dropped from the poll once it succeeds. Last, because it is the one
-        block whose failure the poll can shrug off — leading with it would let
-        a slow identity read write off a device that is answering.
-        """
-        names = self._readings if self._info_read else [*self._readings, "info"]
-        report = await self._async_poll(names, UpdateReport(set(), {}))
-        self._info_read = self._info_read or "info" in report.updated
+        """Refresh what the inverter measures: grid, battery, inverter, EPS, PV."""
+        report = await self._async_poll_readings(UpdateReport(set(), {}))
+        self._notify(report)
         return report
 
     async def async_update_settings(self) -> UpdateReport:
@@ -95,26 +88,43 @@ class AlphaESS:
         that polls them at all polls them rarely — and reads them straight after
         writing one.
         """
-        return await self._async_poll(self._settings, UpdateReport(set(), {}))
+        report = await self._async_poll(self._settings, UpdateReport(set(), {}))
+        self._notify(report)
+        return report
 
     async def async_update(self) -> UpdateReport:
         """Refresh readings and settings together, in one report.
 
         For a caller that does not want to schedule the two apart.
         """
-        report = await self.async_update_readings()
-        return await self._async_poll(self._settings, report)
+        report = await self._async_poll_readings(UpdateReport(set(), {}))
+        await self._async_poll(self._settings, report)
+        self._notify(report)  # nothing fires until the whole cycle is done
+        return report
+
+    async def _async_poll_readings(self, report: UpdateReport) -> UpdateReport:
+        """Read what the inverter measures, without notifying.
+
+        Identity rides along until it is read: it is polled after the rest, and
+        dropped from the poll once it succeeds. Last, because it is the one
+        block whose failure the poll can shrug off — leading with it would let
+        a slow identity read write off a device that is answering.
+        """
+        names = self._readings if self._info_read else [*self._readings, "info"]
+        await self._async_poll(names, report)
+        self._info_read = self._info_read or "info" in report.updated
+        return report
 
     async def _async_poll(self, names: list[str], report: UpdateReport) -> UpdateReport:
         """Read each named component on its own, adding what happened to ``report``.
 
         Components are read independently, the way upstream reads its blocks: a
         sub-system whose read fails keeps its previous values while the rest
-        still refresh. Listeners fire only after every component has been tried,
-        and only on the ones that refreshed. A failure of the link itself raises
-        ``ModbusConnectionError`` instead of reporting, and so does a timeout
-        with nothing answered yet: the device is silent, and walking the rest
-        would only pay a full timeout each to learn the same.
+        still refresh. No listener fires here; the caller notifies. A failure of
+        the link itself raises ``ModbusConnectionError`` instead of reporting,
+        and so does a timeout with nothing answered yet: the device is silent,
+        and walking the rest would only pay a full timeout each to learn the
+        same.
         """
         for name in names:
             component: AlphaESSComponent = getattr(self, name)
@@ -130,11 +140,13 @@ class AlphaESS:
                 report.failed[name] = err
             else:
                 report.updated.add(name)
-        for name in names:
-            if name in report.updated:
-                fresh: AlphaESSComponent = getattr(self, name)
-                fresh.notify()
         return report
+
+    def _notify(self, report: UpdateReport) -> None:
+        """Fire the listeners of everything this update refreshed."""
+        for name in report.updated:
+            fresh: AlphaESSComponent = getattr(self, name)
+            fresh.notify()
 
     async def async_read_raw(self) -> dict[str, dict[int, int | bool]]:
         """Every register this device reads, undecoded — for diagnostics.

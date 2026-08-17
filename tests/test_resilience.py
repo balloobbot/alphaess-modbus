@@ -8,6 +8,8 @@ component granularity.
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 from modbus_connection import ModbusConnectionError, ModbusTimeoutError
 from modbus_connection.mock import MockModbusUnit
@@ -51,12 +53,37 @@ async def test_listeners_fire_at_the_end_and_only_for_fresh_components(
     unit.read_events.clear()
     await device.async_update()
 
-    # One notification, after every reading was tried; none for the failure. The
-    # settings poll that follows is its own, and does not hold the readings up.
-    settings_start = next(
-        i for i, event in enumerate(unit.read_events) if event.address == 0x805
-    )
-    assert seen == [settings_start]
+    # One notification, after every component was tried; none for the failure.
+    assert seen == [len(unit.read_events)]
+
+
+async def test_a_settings_poll_notifies_its_own_sub_systems(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """Polling settings alone fires their listeners, and only theirs."""
+    await device.async_update()
+    seen: list[str] = []
+    device.settings.add_update_listener(lambda: seen.append("settings"))
+    device.battery.add_update_listener(lambda: seen.append("battery"))
+
+    await device.async_update_settings()
+
+    assert seen == ["settings"]
+
+
+async def test_a_full_poll_notifies_each_component_once(
+    unit: MockModbusUnit, device: AlphaESS
+) -> None:
+    """One cycle is one notification, whichever phase refreshed the component."""
+    await device.async_update()
+    counts: Counter[str] = Counter()
+    device.battery.add_update_listener(lambda: counts.update(["battery"]))
+    device.settings.add_update_listener(lambda: counts.update(["settings"]))
+
+    await device.async_update()
+
+    assert counts["battery"] == 1
+    assert counts["settings"] == 1
 
 
 async def test_a_dead_link_raises_instead_of_reporting(
